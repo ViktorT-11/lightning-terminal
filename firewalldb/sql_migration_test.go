@@ -1144,6 +1144,8 @@ func createPrivacyPairs(t *testing.T, ctx context.Context,
 	sessSQLStore, ok := sessionStore.(*session.SQLStore)
 	require.True(t, ok)
 
+	queries := sqlc.NewForType(sessSQLStore, sessSQLStore.BackendType)
+
 	for i := range numSessions {
 		sess, err := sessionStore.NewSession(
 			ctx, fmt.Sprintf("session-%d", i),
@@ -1153,7 +1155,7 @@ func createPrivacyPairs(t *testing.T, ctx context.Context,
 		require.NoError(t, err)
 
 		groupID := sess.GroupID
-		sqlGroupID, err := sessSQLStore.GetSessionIDByAlias(
+		sqlGroupID, err := queries.GetSessionIDByAlias(
 			ctx, groupID[:],
 		)
 		require.NoError(t, err)
@@ -1199,6 +1201,8 @@ func randomPrivacyPairs(t *testing.T, ctx context.Context,
 	sessSQLStore, ok := sessionStore.(*session.SQLStore)
 	require.True(t, ok)
 
+	queries := sqlc.NewForType(sessSQLStore, sessSQLStore.BackendType)
+
 	for i := range numSessions {
 		sess, err := sessionStore.NewSession(
 			ctx, fmt.Sprintf("session-%d", i),
@@ -1208,7 +1212,7 @@ func randomPrivacyPairs(t *testing.T, ctx context.Context,
 		require.NoError(t, err)
 
 		groupID := sess.GroupID
-		sqlGroupID, err := sessSQLStore.GetSessionIDByAlias(
+		sqlGroupID, err := queries.GetSessionIDByAlias(
 			ctx, groupID[:],
 		)
 		require.NoError(t, err)
