@@ -79,7 +79,7 @@ func MakePostStepCallbacksMig1(ctx context.Context, db *sqldb.BaseDB,
 				log.Infof("Running post migration callback "+
 					"for migration version %d", migVersion)
 
-				return fmt.Errorf("test error for callback")
+				return nil
 			}, sqldb.NoOpReset,
 		)
 	}
