@@ -21,7 +21,7 @@ const (
 	//
 	// NOTE: This MUST be updated when a migration is added or removed, from
 	// the migrations_dev directory.
-	LatestDevMigrationVersion = 1
+	LatestDevMigrationVersion = 2
 )
 
 // MakeTestMigrationStreams creates the migration streams for the unit test

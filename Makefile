@@ -138,8 +138,8 @@ install: app-build go-install
 
 go-build:
 	@$(call print, "Building lightning-terminal.")
-	$(GOBUILD) -tags="$(LND_RELEASE_TAGS)" -ldflags "$(LDFLAGS)" -o litd-debug $(PKG)/cmd/litd
-	$(GOBUILD) -tags="$(LND_RELEASE_TAGS)" -ldflags "$(LDFLAGS)" -o litcli-debug $(PKG)/cmd/litcli
+	$(GOBUILD) -tags="$(LND_RELEASE_TAGS) dev" -ldflags "$(LDFLAGS)" -o litd-debug $(PKG)/cmd/litd
+	$(GOBUILD) -tags="$(LND_RELEASE_TAGS) dev" -ldflags "$(LDFLAGS)" -o litcli-debug $(PKG)/cmd/litcli
 
 
 go-build-noui:
@@ -149,8 +149,8 @@ go-build-noui:
 
 go-install:
 	@$(call print, "Installing lightning-terminal.")
-	$(GOINSTALL) -trimpath -tags="$(LND_RELEASE_TAGS)" -ldflags "$(LDFLAGS)" $(PKG)/cmd/litd
-	$(GOINSTALL) -trimpath -tags="$(LND_RELEASE_TAGS)" -ldflags "$(LDFLAGS)" $(PKG)/cmd/litcli
+	$(GOINSTALL) -trimpath -tags="$(LND_RELEASE_TAGS) dev" -ldflags "$(LDFLAGS)" $(PKG)/cmd/litd
+	$(GOINSTALL) -trimpath -tags="$(LND_RELEASE_TAGS) dev" -ldflags "$(LDFLAGS)" $(PKG)/cmd/litcli
 
 go-install-noui:
 	@$(call print, "Installing lightning-terminal without UI.")

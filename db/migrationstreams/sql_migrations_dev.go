@@ -4,6 +4,7 @@ package migrationstreams
 
 import (
 	"context"
+
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	"github.com/lightninglabs/lightning-terminal/db"
@@ -12,13 +13,14 @@ import (
 )
 
 const (
+	MOCK_MIGRATION = 1
 	// KVDBtoSQLMigVersion is the version of the migration that migrates the
 	// kvdb to the sql database.
 	//
 	// TODO: When this the kvdb to sql migration goes live into prod, this
 	// should be moved to non dev db/migrations.go file, and this constant
 	// value should be updated to reflect the real migration number.
-	KVDBtoSQLMigVersion = 1
+	KVDBtoSQLMigVersion = 2
 )
 
 // MakeMigrationStreams creates the migration streams for the dev environments.
@@ -72,6 +74,10 @@ func MakeMigrationStreams(ctx context.Context, macPath string,
 			// after a specific migration of a given number has been
 			// applied.
 			res := make(map[uint]migrate.PostStepCallback)
+
+			res[MOCK_MIGRATION] = MakePostStepCallbacksMig1(
+				ctx, db, macPath, clock, KVDBtoSQLMigVersion,
+			)
 
 			res[KVDBtoSQLMigVersion] = MakePostStepCallbacksMig6(
 				ctx, db, macPath, clock, KVDBtoSQLMigVersion,
