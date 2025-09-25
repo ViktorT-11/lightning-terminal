@@ -57,6 +57,34 @@ func MakePostStepCallbacksMig6(ctx context.Context,
 	}
 }
 
+// MakePostStepCallbacksMig1 is a test callback.
+func MakePostStepCallbacksMig1(ctx context.Context, db *sqldb.BaseDB,
+	_ string, _ clock.Clock, migVersion uint) migrate.PostStepCallback {
+
+	mig6queries := sqlcmig6.NewForType(db, db.BackendType)
+	mig6executor := sqldb.NewTransactionExecutor(
+		db, func(tx *sql.Tx) *sqlcmig6.Queries {
+			return mig6queries.WithTx(tx)
+		},
+	)
+
+	return func(_ *migrate.Migration, _ database.Driver) error {
+		// We ignore the actual driver that's being returned here, since
+		// we use migrate.NewWithInstance() to create the migration
+		// instance from our already instantiated database backend that
+		// is also passed into this function.
+		return mig6executor.ExecTx(
+			ctx, sqldb.WriteTxOpt(),
+			func(q6 *sqlcmig6.Queries) error {
+				log.Infof("Running post migration callback "+
+					"for migration version %d", migVersion)
+
+				return fmt.Errorf("test error for callback")
+			}, sqldb.NoOpReset,
+		)
+	}
+}
+
 func kvdbToSqlMigrationCallback(ctx context.Context,
 	basicClient lnrpc.LightningClient, macPath string, _ *sqldb.BaseDB,
 	clock clock.Clock, q *sqlcmig6.Queries) error {
