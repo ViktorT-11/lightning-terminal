@@ -618,6 +618,8 @@ github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5/go.mod h1:lmUJ/7eu/Q8
 github.com/OneOfOne/xxhash v1.2.2/go.mod h1:HSdplMjZKSmBqAxg5vPj2TmRDmfkzw+cTzAElWljhcU=
 github.com/ViktorT-11/lnd/sqldb/v2 v2.0.0-20251015155301-0546279c3655 h1:DpmgLpV8rnp5lsYMvKKcmWOtSzTUgJdT0eNAueTHVAs=
 github.com/ViktorT-11/lnd/sqldb/v2 v2.0.0-20251015155301-0546279c3655/go.mod h1:YQw+w08kbQ2w1j1g9s/mLqSqXumSOAC8gyMK2qo0ANQ=
+github.com/ViktorT-11/migrate/v4 v4.0.0-20250925095306-7599e4cb183e h1:N1nRdrhuvsRRoH5FzI/6NYyhSKPXdHuSBG69GOYzjVk=
+github.com/ViktorT-11/migrate/v4 v4.0.0-20250925095306-7599e4cb183e/go.mod h1:99BKpIi6ruaaXRM1A77eqZ+FWPQ3cfRa+ZVy5bmWMaY=
 github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344 h1:cDVUiFo+npB0ZASqnw4q90ylaVAbnYyx0JYqK4YcGok=
 github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344/go.mod h1:9pIqrY6SXNL8vjRQE5Hd/OL5GyK/9MrGUWs87z/eFfk=
 github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da h1:KjTM2ks9d14ZYCvmHS9iAKVt9AyzRSqNU1qabPih5BY=
@@ -1164,8 +1166,6 @@ github.com/lightninglabs/loop/looprpc v1.0.8 h1:OFmJNLjem6fLuH1YUO+3G6QA1wmjAd0z
 github.com/lightninglabs/loop/looprpc v1.0.8/go.mod h1:c7WykKQZ3PspCMVvv2kr9o4l3bgJBEBVv0SOoBOjPOw=
 github.com/lightninglabs/loop/swapserverrpc v1.0.15 h1:vEZBF65Lv0T7MPydCRxHSIlEJzHBkZ4I8FtSD6OJK88=
 github.com/lightninglabs/loop/swapserverrpc v1.0.15/go.mod h1:YDoUxA1eV/mbv+gXr4Ova7AFNSiIO+7xXdP7teQmMJY=
-github.com/lightninglabs/migrate/v4 v4.18.2-9023d66a-fork-pr-2 h1:eFjp1dIB2BhhQp/THKrjLdlYuPugO9UU4kDqu91OX/Q=
-github.com/lightninglabs/migrate/v4 v4.18.2-9023d66a-fork-pr-2/go.mod h1:99BKpIi6ruaaXRM1A77eqZ+FWPQ3cfRa+ZVy5bmWMaY=
 github.com/lightninglabs/neutrino v0.16.1 h1:5Kz4ToxncEVkpKC6fwUjXKtFKJhuxlG3sBB3MdJTJjs=
 github.com/lightninglabs/neutrino v0.16.1/go.mod h1:L+5UAccpUdyM7yDgmQySgixf7xmwBgJtOfs/IP26jCs=
 github.com/lightninglabs/neutrino/cache v1.1.2 h1:C9DY/DAPaPxbFC+xNNEI/z1SJY9GS3shmlu5hIQ798g=
