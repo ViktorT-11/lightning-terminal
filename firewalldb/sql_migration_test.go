@@ -1982,6 +1982,13 @@ func addAction(t *testing.T, ctx context.Context, boltDB *BoltDB,
 	action.AccountID = actionReq.AccountID
 	action.MacaroonRootKeyID = actionReq.MacaroonRootKeyID
 
+	// In case the actionReq's RPCParamsJson wasn't set, we need to set the
+	// expected action's RPCParamsJson to nil as that's how such
+	// RPCParamsJson are represented in
+	if len(actionReq.RPCParamsJson) == 0 {
+		action.RPCParamsJson = nil
+	}
+
 	return action
 }
 
