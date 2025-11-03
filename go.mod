@@ -247,10 +247,10 @@ replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-d
 // functionality that did not yet make it into the upstream repository. Because
 // it is a replace in the tapd repository, it doesn't get propagated here
 // automatically, so we need to add it manually.
-replace github.com/golang-migrate/migrate/v4 => github.com/ViktorT-11/migrate/v4 v4.0.0-20250925095306-7599e4cb183e
+replace github.com/golang-migrate/migrate/v4 => github.com/lightninglabs/migrate/v4 v4.18.2-9023d66a-fork-pr-2
 
 // tapd wants v0.19.0-12, but loop can't handle that yet. So we'll just use the
 // previous version for now.
 replace github.com/lightninglabs/lndclient => github.com/lightninglabs/lndclient v0.19.0-11
 
-replace github.com/lightningnetwork/lnd/sqldb/v2 => github.com/ViktorT-11/lnd/sqldb/v2 v2.0.0-20251015155301-0546279c3655
+replace github.com/lightningnetwork/lnd/sqldb/v2 => github.com/ViktorT-11/lnd/sqldb/v2 v2.0.0-20250904113239-233f1fb39ca9
