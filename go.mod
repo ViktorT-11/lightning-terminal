@@ -25,8 +25,8 @@ require (
 	github.com/lightninglabs/lightning-terminal/autopilotserverrpc v0.0.3
 	github.com/lightninglabs/lightning-terminal/litrpc v1.0.2
 	github.com/lightninglabs/lightning-terminal/perms v1.0.1
-	github.com/lightninglabs/lndclient v0.20.0-3
-	github.com/lightninglabs/loop v0.31.5-beta-lnd0.20
+	github.com/lightninglabs/lndclient v0.20.0-4
+	github.com/lightninglabs/loop v0.31.5-beta-lnd0.20.0.20251105182239-16d56f127430
 	github.com/lightninglabs/loop/looprpc v1.0.11
 	github.com/lightninglabs/loop/swapserverrpc v1.0.18
 	github.com/lightninglabs/pool v0.6.6-beta
@@ -166,7 +166,7 @@ require (
 	github.com/ncruces/go-strftime v0.1.9 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.0 // indirect
-	github.com/opencontainers/runc v1.2.0 // indirect
+	github.com/opencontainers/runc v1.2.8 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_golang v1.14.0 // indirect
 	github.com/prometheus/client_model v0.4.0 // indirect
@@ -185,7 +185,7 @@ require (
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 // indirect
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20201229170055-e5319fda7802 // indirect
 	github.com/tv42/zbase32 v0.0.0-20160707012821-501572607d02 // indirect
-	github.com/urfave/cli-docs/v3 v3.1.0 // indirect
+	github.com/urfave/cli-docs/v3 v3.1.1-0.20251020101624-bec07369b4f6 // indirect
 	github.com/urfave/cli/v3 v3.4.1 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
@@ -249,3 +249,7 @@ replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-d
 // it is a replace in the tapd repository, it doesn't get propagated here
 // automatically, so we need to add it manually.
 replace github.com/golang-migrate/migrate/v4 => github.com/lightninglabs/migrate/v4 v4.18.2-9023d66a-fork-pr-2
+
+replace github.com/lightninglabs/loop => github.com/starius/loop v0.31.2-beta-loopin-skip-unnecessary-timeout-tx5.0.20251107162931-2108dddba3bf
+
+replace github.com/lightninglabs/lndclient => github.com/starius/lndclient v0.20.0-3-fix-chainnotif2

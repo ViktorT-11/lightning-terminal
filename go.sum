@@ -1154,10 +1154,6 @@ github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.3 h1:NuDp6Z+QNM
 github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.3/go.mod h1:bDnEKRN1u13NFBuy/C+bFLhxA5bfd3clT25y76QY0AM=
 github.com/lightninglabs/lightning-node-connect/mailbox v1.0.1 h1:RWmohykp3n/DTMWY8b18RNTEcLDf+KT/AZHKYdOObkM=
 github.com/lightninglabs/lightning-node-connect/mailbox v1.0.1/go.mod h1:NYtNexZE9gO1eOeegTxmIW9fqanl7eZ9cOrE9yewSAk=
-github.com/lightninglabs/lndclient v0.20.0-3 h1:hL37EJHYupIEQRSgogA6AFbFQ/6l+A+DuqJMGZ8vm8s=
-github.com/lightninglabs/lndclient v0.20.0-3/go.mod h1:GMqsKYJ/CkKY2DgPJfcvvHf98qiwr4fpKir8oAN7TiI=
-github.com/lightninglabs/loop v0.31.5-beta-lnd0.20 h1:IO4s9WUER1OIO8Aqam/k6mVoZnWh+loJAGt19w/I12Y=
-github.com/lightninglabs/loop v0.31.5-beta-lnd0.20/go.mod h1:11ojYzxnwdHkErhV8aFHy9IfReokOoNRg/B72F5Ck4g=
 github.com/lightninglabs/loop/looprpc v1.0.11 h1:YCz67k5GSm3EKMCRBfis034Pd3R0+vPPHgfNwQqjpaE=
 github.com/lightninglabs/loop/looprpc v1.0.11/go.mod h1:m2B9bg8Cus1TVbXD3RffKVmGS3lpV2Zl1yu5x3wcQYk=
 github.com/lightninglabs/loop/swapserverrpc v1.0.18 h1:gMZi7uU5yeNqqKyPYZHpjgiPr8mmU6DDRPYCIGdtL/A=
@@ -1273,8 +1269,8 @@ github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8
 github.com/opencontainers/go-digest v1.0.0/go.mod h1:0JzlMkj0TRzQZfJkVvzbP0HBR3IKzErnv2BNG4W4MAM=
 github.com/opencontainers/image-spec v1.1.0 h1:8SG7/vwALn54lVB/0yZ/MMwhFrPYtpEHQb2IpWsCzug=
 github.com/opencontainers/image-spec v1.1.0/go.mod h1:W4s4sFTMaBeK1BQLXbG4AdM2szdn85PY75RI83NrTrM=
-github.com/opencontainers/runc v1.2.0 h1:qke7ZVCmJcKrJVY2iHJVC+0kql9uYdkusOPsQOOeBw4=
-github.com/opencontainers/runc v1.2.0/go.mod h1:/PXzF0h531HTMsYQnmxXkBD7YaGShm/2zcRB79dksUc=
+github.com/opencontainers/runc v1.2.8 h1:RnEICeDReapbZ5lZEgHvj7E9Q3Eex9toYmaGBsbvU5Q=
+github.com/opencontainers/runc v1.2.8/go.mod h1:cC0YkmZcuvr+rtBZ6T7NBoVbMGNAdLa/21vIElJDOzI=
 github.com/opentracing/opentracing-go v1.1.0/go.mod h1:UkNAQd3GIcIGf0SeVgPpRdFStlNbqXla1AfSYxPUl2o=
 github.com/ory/dockertest/v3 v3.10.0 h1:4K3z2VMe8Woe++invjaTB7VRyQXQy5UY+loujO4aNE4=
 github.com/ory/dockertest/v3 v3.10.0/go.mod h1:nr57ZbRWMqfsdGdFNLHz5jjNdDb7VVFnzAeW1n5N1Lg=
@@ -1360,6 +1356,10 @@ github.com/spf13/afero v1.6.0/go.mod h1:Ai8FlHk4v/PARR026UzYexafAt9roJ7LcLMAmO6Z
 github.com/spf13/afero v1.9.2/go.mod h1:iUV7ddyEEZPO5gA3zD4fJt6iStLlL+Lg4m2cihcDf8Y=
 github.com/spf13/pflag v1.0.6 h1:jFzHGLGAlb3ruxLB8MhbI6A8+AQX/2eW4qeyNZXNp2o=
 github.com/spf13/pflag v1.0.6/go.mod h1:McXfInJRrz4CZXVZOBLb0bTZqETkiAhM9Iw0y3An2Bg=
+github.com/starius/lndclient v0.20.0-3-fix-chainnotif2 h1:km6IrfkACF8D/mABBO7R5GOdbLWqhca0EwWr1dObiHQ=
+github.com/starius/lndclient v0.20.0-3-fix-chainnotif2/go.mod h1:VxIakyBmTIy4tmg2zqj45YrDkJi53PQLwW0lmFzRR6k=
+github.com/starius/loop v0.31.2-beta-loopin-skip-unnecessary-timeout-tx5.0.20251107162931-2108dddba3bf h1:n9xkvFBau6L5EF0smP0rgyFCPYyi27o/ejSPgr4auEM=
+github.com/starius/loop v0.31.2-beta-loopin-skip-unnecessary-timeout-tx5.0.20251107162931-2108dddba3bf/go.mod h1:0amzXn358kmw488pk5qcQ4VRWmEantfIUjy12w82RXQ=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/objx v0.1.1/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/objx v0.2.0/go.mod h1:qt09Ya8vawLte6SNmTgCsAVtYtaKzEcn8ATUoHMkEqE=
@@ -1392,8 +1392,8 @@ github.com/ugorji/go/codec v1.1.7 h1:2SvQaVZ1ouYrrKKwoSk2pzd4A9evlKJb9oTL+OaLUSs
 github.com/ugorji/go/codec v1.1.7/go.mod h1:Ax+UKWsSmolVDwsd+7N3ZtXu+yMGCf907BLYF3GoBXY=
 github.com/urfave/cli v1.22.14 h1:ebbhrRiGK2i4naQJr+1Xj92HXZCrK7MsyTS/ob3HnAk=
 github.com/urfave/cli v1.22.14/go.mod h1:X0eDS6pD6Exaclxm99NJ3FiCDRED7vIHpx2mDOHLvkA=
-github.com/urfave/cli-docs/v3 v3.1.0 h1:Sa5xm19IpE5gpm6tZzXdfjdFxn67PnEsE4dpXF7vsKw=
-github.com/urfave/cli-docs/v3 v3.1.0/go.mod h1:59d+5Hz1h6GSGJ10cvcEkbIe3j233t4XDqI72UIx7to=
+github.com/urfave/cli-docs/v3 v3.1.1-0.20251020101624-bec07369b4f6 h1:cm0BrTu3Q0CNo+vB5kErCcVMZqD2D1z7y3YVIiBlr+o=
+github.com/urfave/cli-docs/v3 v3.1.1-0.20251020101624-bec07369b4f6/go.mod h1:59d+5Hz1h6GSGJ10cvcEkbIe3j233t4XDqI72UIx7to=
 github.com/urfave/cli/v3 v3.4.1 h1:1M9UOCy5bLmGnuu1yn3t3CB4rG79Rtoxuv1sPhnm6qM=
 github.com/urfave/cli/v3 v3.4.1/go.mod h1:FJSKtM/9AiiTOJL4fJ6TbMUkxBXn7GO9guZqoZtpYpo=
 github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f h1:J9EGpcZtP0E/raorCMxlFGSTBrsSlaDGf3jU/qvAE2c=
