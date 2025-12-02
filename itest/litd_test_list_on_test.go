@@ -119,6 +119,10 @@ var allTestCases = []*testCase{
 		noAliceBob: true,
 	},
 	{
+		name: "kvdb to sql migration",
+		test: testKvdbSQLMigration,
+	},
+	{
 		name:       "custom channels decode payreq",
 		test:       testCustomChannelsDecodeAssetInvoice,
 		noAliceBob: true,
