@@ -172,7 +172,7 @@ func testKvdbSQLMigration(ctx context.Context, net *NetworkHarness,
 
 	// Step 4: Assert data via litcli where possible.
 	assertMigrationDataViaLitCLI(
-		ctxt, t, migNode, accountsData, sessionData,
+		ctxt, t, migNode, accountsData, sessionData, fWallData,
 	)
 
 	// Step 5: Restart the node once more with the configured backend to
@@ -191,7 +191,7 @@ func testKvdbSQLMigration(ctx context.Context, net *NetworkHarness,
 
 	// Step 7: Assert data via litcli where possible.
 	assertMigrationDataViaLitCLI(
-		ctxt, t, migNode, accountsData, sessionData,
+		ctxt, t, migNode, accountsData, sessionData, fWallData,
 	)
 }
 
@@ -249,6 +249,11 @@ type firewallKVMigrationData struct {
 
 type firewallMigrationData struct {
 	firewallKVMigrationData
+	firewallPrivacyPairMigrationData
+}
+
+type firewallPrivacyPairMigrationData struct {
+	privPairs map[session.ID]map[string]string
 }
 
 // setupAccountMigrationData creates account fixtures for migration tests
@@ -997,8 +1002,16 @@ func setupFirewallMigrationData(ctx context.Context, t *harnessTest,
 		return firewallMigrationData{}, err
 	}
 
+	firewallPrivacyData, err := setupFirewallPrivacyMapperMigrationData(
+		ctx, accountStore, dbDir,
+	)
+	if err != nil {
+		return firewallMigrationData{}, err
+	}
+
 	return firewallMigrationData{
-		firewallKVMigrationData: firewallKVData,
+		firewallKVMigrationData:          firewallKVData,
+		firewallPrivacyPairMigrationData: firewallPrivacyData,
 	}, nil
 }
 
@@ -1366,6 +1379,162 @@ func insertFirewallKVEntry(ctx context.Context,
 	})
 }
 
+// setupFirewallPrivacyMapperMigrationData seeds privacy mapper entries.
+func setupFirewallPrivacyMapperMigrationData(ctx context.Context,
+	accountStore accounts.Store,
+	dbDir string) (firewallPrivacyPairMigrationData, error) {
+
+	data := firewallPrivacyPairMigrationData{
+		privPairs: make(map[session.ID]map[string]string),
+	}
+
+	dbClock := clock.NewDefaultClock()
+	sessionStore, err := session.NewDB(
+		dbDir, session.DBFilename, dbClock, accountStore,
+	)
+	if err != nil {
+		return data, err
+	}
+	defer sessionStore.Close()
+
+	firewallStore, err := firewalldb.NewBoltDB(
+		dbDir, firewalldb.DBFilename,
+		sessionStore, accountStore, dbClock,
+	)
+	if err != nil {
+		return data, err
+	}
+	defer firewallStore.Close()
+
+	addPrivacyPairs := func(groupID session.ID, numPairs int) error {
+		pairs := make(map[string]string)
+		for i := 0; i < numPairs; i++ {
+			realKey := fmt.Sprintf("real-%d", i)
+			pseudoKey := fmt.Sprintf("pseudo-%d", i)
+			err := firewallStore.PrivacyDB(groupID).Update(
+				ctx, func(ctx context.Context,
+					tx firewalldb.PrivacyMapTx) error {
+
+					return tx.NewPair(
+						ctx, realKey, pseudoKey,
+					)
+				},
+			)
+			if err != nil {
+				return err
+			}
+			pairs[realKey] = pseudoKey
+		}
+
+		data.privPairs[groupID] = pairs
+		return nil
+	}
+
+	newGroupAlias := func(label string,
+		keep bool) (session.ID, error) {
+
+		sess, err := sessionStore.NewSession(
+			ctx, label, session.TypeAutopilot,
+			time.Unix(1000, 0), "firewall.test",
+		)
+		if err != nil {
+			return session.ID{}, err
+		}
+
+		if keep {
+			err = sessionStore.ShiftState(
+				ctx, sess.ID, session.StateCreated,
+			)
+			if err != nil {
+				return session.ID{}, err
+			}
+		}
+
+		return sess.GroupID, nil
+	}
+
+	// Mimic "one session and privacy pair".
+	privGroup, err := newGroupAlias("fw-privacy-one", true)
+	if err != nil {
+		return data, err
+	}
+	err = addPrivacyPairs(privGroup, 1)
+	if err != nil {
+		return data, err
+	}
+
+	// Mimic "one session with multiple privacy pair".
+	privMulti, err := newGroupAlias("fw-privacy-multi", true)
+	if err != nil {
+		return data, err
+	}
+	err = addPrivacyPairs(privMulti, 10)
+	if err != nil {
+		return data, err
+	}
+
+	// Mimic "multiple sessions and privacy pairs".
+	for i := 0; i < 5; i++ {
+		label := fmt.Sprintf("fw-privacy-many-%d", i)
+		privGroup, err = newGroupAlias(label, true)
+		if err != nil {
+			return data, err
+		}
+		err = addPrivacyPairs(privGroup, 10)
+		if err != nil {
+			return data, err
+		}
+	}
+
+	// Mimic "deleted session with privacy pair".
+	deletedPriv, err := newGroupAlias("fw-privacy-deleted", false)
+	if err != nil {
+		return data, err
+	}
+	err = firewallStore.PrivacyDB(deletedPriv).Update(
+		ctx, func(ctx context.Context,
+			tx firewalldb.PrivacyMapTx) error {
+
+			return tx.NewPair(ctx, "real-del", "pseudo-del")
+		},
+	)
+	if err != nil {
+		return data, err
+	}
+
+	// Mimic "deleted and existing sessions with privacy pairs".
+	deletedPriv2, err := newGroupAlias("fw-privacy-del2", false)
+	if err != nil {
+		return data, err
+	}
+	err = firewallStore.PrivacyDB(deletedPriv2).Update(
+		ctx, func(ctx context.Context,
+			tx firewalldb.PrivacyMapTx) error {
+
+			return tx.NewPair(ctx, "real-del2", "pseudo-del2")
+		},
+	)
+	if err != nil {
+		return data, err
+	}
+
+	existingPriv, err := newGroupAlias("fw-privacy-keep", true)
+	if err != nil {
+		return data, err
+	}
+	err = addPrivacyPairs(existingPriv, 1)
+	if err != nil {
+		return data, err
+	}
+
+	err = sessionStore.DeleteReservedSessions(ctx)
+	if err != nil {
+		return data, err
+	}
+
+	return data, nil
+}
+
 // assertMigrationDataInBBoltDB validates bbolt data before migration.
 func assertMigrationDataInBBoltDB(ctx context.Context,
 	accountStore *accounts.BoltStore, dbDir string,
@@ -1384,7 +1553,14 @@ func assertMigrationDataInBBoltDB(ctx context.Context,
 		return err
 	}
 
-	return assertFirewallKVMigrationDataBolt(
+	err = assertFirewallKVMigrationDataBolt(
+		ctx, accountStore, dbDir, firewallData,
+	)
+	if err != nil {
+		return err
+	}
+
+	return assertFirewallPrivacyMapperMigrationDataBolt(
 		ctx, accountStore, dbDir, firewallData,
 	)
 }
@@ -1610,10 +1786,83 @@ func assertFirewallKVEntryBolt(ctx context.Context,
 	})
 }
 
+// assertFirewallPrivacyMapperMigrationDataBolt checks privacy pairs in bbolt.
+func assertFirewallPrivacyMapperMigrationDataBolt(ctx context.Context,
+	accountStore accounts.Store, dbDir string,
+	data firewallMigrationData) error {
+
+	dbClock := clock.NewDefaultClock()
+	sessionStore, err := session.NewDB(
+		dbDir, session.DBFilename, dbClock, accountStore,
+	)
+	if err != nil {
+		return err
+	}
+	defer sessionStore.Close()
+
+	firewallStore, err := firewalldb.NewBoltDB(
+		dbDir, firewalldb.DBFilename, sessionStore,
+		accountStore, dbClock,
+	)
+	if err != nil {
+		return err
+	}
+	defer firewallStore.Close()
+
+	for groupID, pairs := range data.privPairs {
+		err := assertFirewallPrivacyPairsBolt(
+			ctx, firewallStore, groupID, pairs,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// assertFirewallPrivacyPairsBolt checks privacy pairs for a group ID.
+func assertFirewallPrivacyPairsBolt(ctx context.Context,
+	firewallStore *firewalldb.BoltDB, groupID session.ID,
+	expected map[string]string) error {
+
+	return firewallStore.PrivacyDB(groupID).View(
+		ctx, func(ctx context.Context,
+			tx firewalldb.PrivacyMapTx) error {
+
+			pairs, err := tx.FetchAllPairs(ctx)
+			if err != nil {
+				return err
+			}
+			if pairs == nil {
+				return fmt.Errorf("privacy pairs not found")
+			}
+
+			for real, pseudo := range expected {
+				got, ok := pairs.GetPseudo(real)
+				if !ok {
+					return fmt.Errorf(
+						"privacy pair missing for %s",
+						real,
+					)
+				}
+				if got != pseudo {
+					return fmt.Errorf(
+						"privacy pair mismatch for %s",
+						real,
+					)
+				}
+			}
+
+			return nil
+		},
+	)
+}
+
 // assertMigrationDataViaLitCLI checks migration data using litcli commands.
 func assertMigrationDataViaLitCLI(ctx context.Context, t *harnessTest,
 	node *HarnessNode, accountsData accountMigrationData,
-	sessionData sessionMigrationData) {
+	sessionData sessionMigrationData, firewallData firewallMigrationData) {
 
 	listResp, err := listAccountsViaLitCLI(ctx, node)
 	require.NoError(t.t, err)
@@ -1622,6 +1871,8 @@ func assertMigrationDataViaLitCLI(ctx context.Context, t *harnessTest,
 	sessionsResp, err := listSessionsViaLitCLI(ctx, node)
 	require.NoError(t.t, err)
 	assertSessionMigrationDataFromList(t, sessionsResp, sessionData)
+
+	assertPrivacyPairsViaLitCLI(ctx, t, node, firewallData)
 }
 
 // listAccountsViaLitCLI runs `litcli accounts list` and parses the response.
@@ -1874,6 +2125,83 @@ func assertMacaroonRecipe(t *harnessTest, actual *litrpc.MacaroonRecipe,
 	require.Equal(t.t, expectedPerms, actualPerms)
 }
 
+// assertPrivacyPairsViaLitCLI validates privacy pairs via litcli.
+func assertPrivacyPairsViaLitCLI(ctx context.Context, t *harnessTest,
+	node *HarnessNode, data firewallMigrationData) {
+
+	for groupID, pairs := range data.privPairs {
+		for real, pseudo := range pairs {
+			gotPseudo, err := privacyMapStrViaLitCLI(
+				ctx, node, groupID, true, real,
+			)
+			require.NoError(t.t, err)
+			require.Equal(t.t, pseudo, gotPseudo)
+
+			gotReal, err := privacyMapStrViaLitCLI(
+				ctx, node, groupID, false, pseudo,
+			)
+			require.NoError(t.t, err)
+			require.Equal(t.t, real, gotReal)
+		}
+	}
+}
+
+// privacyMapStrViaLitCLI runs litcli privacy string conversions.
+func privacyMapStrViaLitCLI(ctx context.Context, node *HarnessNode,
+	groupID session.ID, realToPseudo bool, input string) (string, error) {
+
+	litcliPath, err := exec.LookPath("litcli")
+	if err != nil {
+		return "", fmt.Errorf("litcli not found in PATH")
+	}
+
+	groupHex := hex.EncodeToString(groupID[:])
+	args := []string{
+		"privacy",
+		fmt.Sprintf("--group_id=%s", groupHex),
+	}
+	if realToPseudo {
+		args = append(args, "--realtopseudo")
+	}
+	args = append(args, "str", fmt.Sprintf("--input=%s", input))
+
+	cmd := exec.CommandContext(ctx, litcliPath, args...)
+	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("LITCLI_RPCSERVER=%s", node.Cfg.LitAddr()),
+		fmt.Sprintf(
+			"LITCLI_TLSCERTPATH=%s", node.Cfg.LitTLSCertPath,
+		),
+		fmt.Sprintf("LITCLI_MACAROONPATH=%s", node.Cfg.LitMacPath),
+		fmt.Sprintf(
+			"LITCLI_NETWORK=%s", node.Cfg.NetParams.Name,
+		),
+		fmt.Sprintf("LITCLI_BASEDIR=%s", node.Cfg.LitDir),
+	)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf(
+			"litcli privacy str failed: %w: %s",
+			err, strings.TrimSpace(string(output)),
+		)
+	}
+
+	raw := strings.TrimSpace(string(output))
+	if raw == "" {
+		return "", fmt.Errorf("litcli privacy str returned no data")
+	}
+
+	var resp litrpc.PrivacyMapConversionResponse
+	err = lnrpc.ProtoJSONUnmarshalOpts.Unmarshal(
+		[]byte(raw), &resp,
+	)
+	if err != nil {
+		return "", err
+	}
+
+	return resp.Output, nil
+}
+
 // assertMigrationDataSQL connects to the SQL DB to assert the migration
 // results.
 func assertMigrationDataSQL(ctx context.Context, t *harnessTest,
@@ -2013,6 +2341,7 @@ func assertFirewallMigrationDataSQL(ctx context.Context, t *harnessTest,
 	node *HarnessNode, data firewallMigrationData) {
 
 	assertFirewallKVMigrationDataSQL(ctx, t, node, data)
+	assertFirewallPrivacyMapperMigrationDataSQL(ctx, t, node, data)
 }
 
 // assertFirewallKVMigrationDataSQL connects to the SQL DB and queries KV
@@ -2141,6 +2470,78 @@ func assertFirewallKVMigrationDataSQL(ctx context.Context, t *harnessTest,
 			)
 		}
 	}
+}
+
+// assertFirewallPrivacyMapperMigrationDataSQL connects to the SQL DB and
+// queries privacy pairs to assert migration results.
+func assertFirewallPrivacyMapperMigrationDataSQL(ctx context.Context,
+	t *harnessTest, node *HarnessNode, data firewallMigrationData) {
+
+	dbPath := filepath.Join(
+		node.Cfg.LitDir,
+		node.Cfg.NetParams.Name,
+		"litd.db",
+	)
+
+	sqlStore, err := sqldb.NewSqliteStore(
+		&sqldb.SqliteConfig{
+			SkipMigrations:        true,
+			SkipMigrationDbBackup: true,
+		}, dbPath,
+	)
+	require.NoError(t.t, err)
+	defer sqlStore.BaseDB.Close()
+
+	queries := sqlcmig6.NewForType(
+		sqlStore.BaseDB, sqlStore.BackendType,
+	)
+
+	groupIDs := make(map[[4]byte]int64)
+
+	getGroupID := func(alias session.ID) int64 {
+		id, ok := groupIDs[alias]
+		if ok {
+			return id
+		}
+
+		groupID, err := queries.GetSessionIDByAlias(ctx, alias[:])
+		require.NoError(t.t, err)
+		groupIDs[alias] = groupID
+
+		return groupID
+	}
+
+	var totalExpected, totalFound int
+	for groupAlias, pairs := range data.privPairs {
+		groupID := getGroupID(groupAlias)
+		storePairs, err := queries.GetAllPrivacyPairs(
+			ctx, groupID,
+		)
+		require.NoError(t.t, err)
+		require.Len(t.t, storePairs, len(pairs))
+
+		totalExpected += len(pairs)
+		for _, storePair := range storePairs {
+			pseudo, ok := pairs[storePair.RealVal]
+			require.True(t.t, ok)
+			require.Equal(t.t, pseudo, storePair.PseudoVal)
+		}
+	}
+
+	dbSessions, err := queries.ListSessions(ctx)
+	require.NoError(t.t, err)
+	for _, dbSession := range dbSessions {
+		dbPairs, err := queries.GetAllPrivacyPairs(
+			ctx, dbSession.ID,
+		)
+		if err == sql.ErrNoRows {
+			continue
+		}
+		require.NoError(t.t, err)
+		totalFound += len(dbPairs)
+	}
+
+	require.Equal(t.t, totalExpected, totalFound)
 }
 
 // buildSessionExpectationFromSQL converts SQL rows into expectations.
