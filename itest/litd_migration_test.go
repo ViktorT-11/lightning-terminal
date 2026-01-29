@@ -5,6 +5,7 @@ package itest
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	terminal "github.com/lightninglabs/lightning-terminal"
 	"github.com/lightninglabs/lightning-terminal/accounts"
 	"github.com/lightninglabs/lightning-terminal/db/sqlcmig6"
+	"github.com/lightninglabs/lightning-terminal/firewalldb"
 	"github.com/lightninglabs/lightning-terminal/litrpc"
 	"github.com/lightninglabs/lightning-terminal/session"
 	"github.com/lightningnetwork/lnd/clock"
@@ -123,6 +125,7 @@ func testKvdbSQLMigration(ctx context.Context, net *NetworkHarness,
 
 	// Hold bbolt data to assert before and after migration.
 	var sessionData sessionMigrationData
+	var fWallData firewallMigrationData
 
 	// Restart with bbolt to insert and verify migration data before
 	// triggering the sqlite migration.
@@ -146,7 +149,7 @@ func testKvdbSQLMigration(ctx context.Context, net *NetworkHarness,
 			}
 			defer accountStore.Close()
 
-			sessionData, err = setupBBoltMigrationData(
+			sessionData, fWallData, err = setupBBoltMigrationData(
 				ctxt, t, accountStore, dbDir, accountsData,
 			)
 			if err != nil {
@@ -156,7 +159,7 @@ func testKvdbSQLMigration(ctx context.Context, net *NetworkHarness,
 			// Step 3: Assert data in bbolt via direct store access.
 			return assertMigrationDataInBBoltDB(
 				ctxt, accountStore, dbDir, accountsData,
-				sessionData,
+				sessionData, fWallData,
 			)
 		}, []LitArgOption{
 			WithLitArg(
@@ -182,7 +185,9 @@ func testKvdbSQLMigration(ctx context.Context, net *NetworkHarness,
 	require.NoError(t.t, err)
 
 	// Step 6: Assert data in SQL via direct database access.
-	assertMigrationDataSQL(ctxt, t, migNode, accountsData, sessionData)
+	assertMigrationDataSQL(
+		ctxt, t, migNode, accountsData, sessionData, fWallData,
+	)
 
 	// Step 7: Assert data via litcli where possible.
 	assertMigrationDataViaLitCLI(
@@ -227,6 +232,23 @@ type sessionMigrationExpectation struct {
 
 type sessionMigrationData struct {
 	expectations map[string]sessionMigrationExpectation
+}
+
+type firewallKVEntryExpectation struct {
+	ruleName    string
+	groupAlias  *session.ID
+	featureName *string
+	key         string
+	value       []byte
+	perm        bool
+}
+
+type firewallKVMigrationData struct {
+	entries []*firewallKVEntryExpectation
+}
+
+type firewallMigrationData struct {
+	firewallKVMigrationData
 }
 
 // setupAccountMigrationData creates account fixtures for migration tests
@@ -328,16 +350,29 @@ func setupAccountMigrationData(ctx context.Context, adminCtx context.Context,
 // payments, by creating a direct connection to the bbolt db.
 func setupBBoltMigrationData(ctx context.Context, t *harnessTest,
 	accountStore *accounts.BoltStore, dbDir string,
-	accountsData accountMigrationData) (sessionMigrationData, error) {
+	accountsData accountMigrationData) (sessionMigrationData,
+	firewallMigrationData, error) {
 
 	err := setupMigrationPayments(accountStore, accountsData)
 	if err != nil {
-		return sessionMigrationData{}, err
+		return sessionMigrationData{}, firewallMigrationData{}, err
 	}
 
-	return setupSessionMigrationData(
+	sessionData, err := setupSessionMigrationData(
 		ctx, t, accountStore, dbDir,
 	)
+	if err != nil {
+		return sessionMigrationData{}, firewallMigrationData{}, err
+	}
+
+	firewallData, err := setupFirewallMigrationData(
+		ctx, t, accountStore, dbDir,
+	)
+	if err != nil {
+		return sessionMigrationData{}, firewallMigrationData{}, err
+	}
+
+	return sessionData, firewallData, nil
 }
 
 // setupMigrationPayments inserts payments into the bbolt accounts store to
@@ -949,19 +984,408 @@ func updateSessionIDAndCreatedAt(store *session.BoltStore, oldID session.ID,
 	})
 }
 
+// setupFirewallMigrationData creates firewalldb fixtures for migration tests
+// that mimic firewalldb/sql_migration_test.go, excluding randomized tests.
+func setupFirewallMigrationData(ctx context.Context, t *harnessTest,
+	accountStore *accounts.BoltStore, dbDir string) (firewallMigrationData,
+	error) {
+
+	firewallKVData, err := setupFirewallKVMigrationData(
+		ctx, t, accountStore, dbDir,
+	)
+	if err != nil {
+		return firewallMigrationData{}, err
+	}
+
+	return firewallMigrationData{
+		firewallKVMigrationData: firewallKVData,
+	}, nil
+}
+
+// setupFirewallKVMigrationData seeds firewall kv entries for migration.
+func setupFirewallKVMigrationData(ctx context.Context, t *harnessTest,
+	accountStore accounts.Store,
+	dbDir string) (firewallKVMigrationData, error) {
+
+	data := firewallKVMigrationData{
+		entries: make([]*firewallKVEntryExpectation, 0),
+	}
+
+	dbClock := clock.NewDefaultClock()
+	sessionStore, err := session.NewDB(
+		dbDir, session.DBFilename, dbClock, accountStore,
+	)
+	if err != nil {
+		return data, err
+	}
+	defer sessionStore.Close()
+
+	firewallStore, err := firewalldb.NewBoltDB(
+		dbDir, firewalldb.DBFilename,
+		sessionStore, accountStore, dbClock,
+	)
+	if err != nil {
+		return data, err
+	}
+	defer firewallStore.Close()
+
+	addExpected := func(entry *firewallKVEntryExpectation) {
+		data.entries = append(data.entries, entry)
+	}
+
+	addTempAndPerm := func(rule string, groupAlias *session.ID,
+		featureName *string, key string, value []byte) error {
+
+		tempEntry := &firewallKVEntryExpectation{
+			ruleName:    rule,
+			groupAlias:  groupAlias,
+			featureName: featureName,
+			key:         key,
+			value:       value,
+			perm:        false,
+		}
+		if err := insertFirewallKVEntry(
+			ctx, firewallStore, tempEntry,
+		); err != nil {
+			return err
+		}
+
+		permEntry := &firewallKVEntryExpectation{
+			ruleName:    rule,
+			groupAlias:  groupAlias,
+			featureName: featureName,
+			key:         key,
+			value:       value,
+			perm:        true,
+		}
+		if err := insertFirewallKVEntry(
+			ctx, firewallStore, permEntry,
+		); err != nil {
+			return err
+		}
+		addExpected(permEntry)
+
+		return nil
+	}
+
+	newGroupAlias := func(label string,
+		keep bool) (session.ID, error) {
+
+		sess, err := sessionStore.NewSession(
+			ctx, label, session.TypeAutopilot,
+			time.Unix(1000, 0), "firewall.test",
+		)
+		if err != nil {
+			return session.ID{}, err
+		}
+
+		if keep {
+			err = sessionStore.ShiftState(
+				ctx, sess.ID, session.StateCreated,
+			)
+			if err != nil {
+				return session.ID{}, err
+			}
+		}
+
+		return sess.GroupID, nil
+	}
+
+	ruleName := "migration-firewall-rule"
+	ruleName2 := "migration-firewall-rule-2"
+	featureName := "migration-feature"
+	featureName2 := "migration-feature-2"
+	entryKey := "migration-entry-key"
+	entryKey2 := "migration-entry-key-2"
+	entryKey3 := "migration-entry-key-3"
+	entryKey4 := "migration-entry-key-4"
+	entryValue := []byte{1, 2, 3}
+
+	// Mimic "global kv entries".
+	err = addTempAndPerm(
+		ruleName, nil, nil, entryKey, entryValue,
+	)
+	if err != nil {
+		return data, err
+	}
+
+	// Mimic "session specific kv entries".
+	groupAlias, err := newGroupAlias("fw-session", true)
+	if err != nil {
+		return data, err
+	}
+	err = addTempAndPerm(
+		ruleName, &groupAlias, nil, entryKey, entryValue,
+	)
+	if err != nil {
+		return data, err
+	}
+
+	// Mimic "session specific kv entries deleted session".
+	deletedGroup, err := newGroupAlias("fw-session-deleted", false)
+	if err != nil {
+		return data, err
+	}
+	err = insertFirewallKVEntry(
+		ctx, firewallStore, &firewallKVEntryExpectation{
+			ruleName:    ruleName,
+			groupAlias:  &deletedGroup,
+			featureName: nil,
+			key:         entryKey,
+			value:       entryValue,
+			perm:        false,
+		},
+	)
+	if err != nil {
+		return data, err
+	}
+
+	err = insertFirewallKVEntry(
+		ctx, firewallStore, &firewallKVEntryExpectation{
+			ruleName:    ruleName,
+			groupAlias:  &deletedGroup,
+			featureName: nil,
+			key:         entryKey,
+			value:       entryValue,
+			perm:        true,
+		},
+	)
+	if err != nil {
+		return data, err
+	}
+
+	// Mimic "session specific kv entries deleted and existing sessions".
+	existingGroup, err := newGroupAlias("fw-session-existing", true)
+	if err != nil {
+		return data, err
+	}
+	err = addTempAndPerm(
+		ruleName2, &existingGroup, nil, entryKey2, entryValue,
+	)
+	if err != nil {
+		return data, err
+	}
+	err = insertFirewallKVEntry(
+		ctx, firewallStore, &firewallKVEntryExpectation{
+			ruleName:    ruleName2,
+			groupAlias:  &deletedGroup,
+			featureName: nil,
+			key:         entryKey2,
+			value:       entryValue,
+			perm:        false,
+		},
+	)
+	if err != nil {
+		return data, err
+	}
+
+	// Mimic "feature specific kv entries".
+	featureGroup, err := newGroupAlias("fw-feature", true)
+	if err != nil {
+		return data, err
+	}
+	err = addTempAndPerm(
+		ruleName, &featureGroup, &featureName, entryKey, entryValue,
+	)
+	if err != nil {
+		return data, err
+	}
+
+	// Mimic "feature specific kv entries deleted session".
+	err = insertFirewallKVEntry(
+		ctx, firewallStore, &firewallKVEntryExpectation{
+			ruleName:    ruleName,
+			groupAlias:  &deletedGroup,
+			featureName: &featureName,
+			key:         entryKey,
+			value:       entryValue,
+			perm:        false,
+		},
+	)
+	if err != nil {
+		return data, err
+	}
+
+	// Mimic "feature specific kv entries deleted and existing sessions".
+	featureExisting, err := newGroupAlias(
+		"fw-feature-existing", true,
+	)
+	if err != nil {
+		return data, err
+	}
+	err = addTempAndPerm(
+		ruleName2, &featureExisting, &featureName2,
+		entryKey2, entryValue,
+	)
+	if err != nil {
+		return data, err
+	}
+	err = insertFirewallKVEntry(
+		ctx, firewallStore, &firewallKVEntryExpectation{
+			ruleName:    ruleName2,
+			groupAlias:  &deletedGroup,
+			featureName: &featureName2,
+			key:         entryKey2,
+			value:       entryValue,
+			perm:        true,
+		},
+	)
+	if err != nil {
+		return data, err
+	}
+
+	// Mimic "all kv entry combinations".
+	allGroup, err := newGroupAlias("fw-all", true)
+	if err != nil {
+		return data, err
+	}
+	err = addTempAndPerm(
+		ruleName2, nil, nil, entryKey, entryValue,
+	)
+	if err != nil {
+		return data, err
+	}
+	err = addTempAndPerm(
+		ruleName2, &allGroup, nil, entryKey, entryValue,
+	)
+	if err != nil {
+		return data, err
+	}
+	err = addTempAndPerm(
+		ruleName2, &allGroup, &featureName, entryKey, entryValue,
+	)
+	if err != nil {
+		return data, err
+	}
+	err = addTempAndPerm(
+		ruleName2, &allGroup, &featureName2, entryKey, entryValue,
+	)
+	if err != nil {
+		return data, err
+	}
+
+	nilValue := []byte(nil)
+	emptyValue := []byte{}
+
+	err = addTempAndPerm(
+		ruleName2, nil, nil, entryKey2, nilValue,
+	)
+	if err != nil {
+		return data, err
+	}
+	err = addTempAndPerm(
+		ruleName2, nil, nil, entryKey3, nilValue,
+	)
+	if err != nil {
+		return data, err
+	}
+	err = addTempAndPerm(
+		ruleName2, nil, nil, entryKey4, emptyValue,
+	)
+	if err != nil {
+		return data, err
+	}
+
+	err = addTempAndPerm(
+		ruleName2, &allGroup, nil, entryKey2, nilValue,
+	)
+	if err != nil {
+		return data, err
+	}
+	err = addTempAndPerm(
+		ruleName2, &allGroup, nil, entryKey3, nilValue,
+	)
+	if err != nil {
+		return data, err
+	}
+	err = addTempAndPerm(
+		ruleName2, &allGroup, nil, entryKey4, emptyValue,
+	)
+	if err != nil {
+		return data, err
+	}
+
+	err = addTempAndPerm(
+		ruleName2, &allGroup, &featureName, entryKey2, nilValue,
+	)
+	if err != nil {
+		return data, err
+	}
+	err = addTempAndPerm(
+		ruleName2, &allGroup, &featureName, entryKey3, nilValue,
+	)
+	if err != nil {
+		return data, err
+	}
+	err = addTempAndPerm(
+		ruleName2, &allGroup, &featureName, entryKey4, emptyValue,
+	)
+	if err != nil {
+		return data, err
+	}
+
+	return data, nil
+}
+
+// insertFirewallKVEntry inserts a single firewall kv entry into BoltDB.
+func insertFirewallKVEntry(ctx context.Context,
+	firewallStore *firewalldb.BoltDB,
+	entry *firewallKVEntryExpectation) error {
+
+	var groupID session.ID
+	if entry.groupAlias != nil {
+		groupID = *entry.groupAlias
+	}
+
+	featureName := ""
+	if entry.featureName != nil {
+		featureName = *entry.featureName
+	}
+
+	kvStores := firewallStore.GetKVStores(
+		entry.ruleName, groupID, featureName,
+	)
+
+	return kvStores.Update(ctx, func(ctx context.Context,
+		tx firewalldb.KVStoreTx) error {
+
+		var store firewalldb.KVStore
+
+		switch {
+		case entry.groupAlias == nil && !entry.perm:
+			store = tx.GlobalTemp()
+		case entry.groupAlias == nil && entry.perm:
+			store = tx.Global()
+		case entry.groupAlias != nil && !entry.perm:
+			store = tx.LocalTemp()
+		default:
+			store = tx.Local()
+		}
+
+		return store.Set(ctx, entry.key, entry.value)
+	})
+}
+
 // assertMigrationDataInBBoltDB validates bbolt data before migration.
 func assertMigrationDataInBBoltDB(ctx context.Context,
 	accountStore *accounts.BoltStore, dbDir string,
-	accountsData accountMigrationData,
-	sessionData sessionMigrationData) error {
+	accountsData accountMigrationData, sessionData sessionMigrationData,
+	firewallData firewallMigrationData) error {
 
 	err := assertAccountsMigrationDataBolt(ctx, accountStore, accountsData)
 	if err != nil {
 		return err
 	}
 
-	return assertSessionMigrationDataBolt(
+	err = assertSessionMigrationDataBolt(
 		ctx, accountStore, dbDir, sessionData,
+	)
+	if err != nil {
+		return err
+	}
+
+	return assertFirewallKVMigrationDataBolt(
+		ctx, accountStore, dbDir, firewallData,
 	)
 }
 
@@ -1099,6 +1523,91 @@ func assertSessionMigrationDataBolt(ctx context.Context,
 	}
 
 	return nil
+}
+
+// assertFirewallKVMigrationDataBolt checks firewall kv entries in bbolt.
+func assertFirewallKVMigrationDataBolt(ctx context.Context,
+	accountStore accounts.Store, dbDir string,
+	data firewallMigrationData) error {
+
+	dbClock := clock.NewDefaultClock()
+	sessionStore, err := session.NewDB(
+		dbDir, session.DBFilename, dbClock, accountStore,
+	)
+	if err != nil {
+		return err
+	}
+	defer sessionStore.Close()
+
+	firewallStore, err := firewalldb.NewBoltDB(
+		dbDir, firewalldb.DBFilename, sessionStore,
+		accountStore, dbClock,
+	)
+	if err != nil {
+		return err
+	}
+	defer firewallStore.Close()
+
+	for _, entry := range data.entries {
+		err := assertFirewallKVEntryBolt(
+			ctx, firewallStore, entry,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// assertFirewallKVEntryBolt verifies a single kv entry in bbolt.
+func assertFirewallKVEntryBolt(ctx context.Context,
+	firewallStore *firewalldb.BoltDB,
+	entry *firewallKVEntryExpectation) error {
+
+	var groupID session.ID
+	if entry.groupAlias != nil {
+		groupID = *entry.groupAlias
+	}
+
+	featureName := ""
+	if entry.featureName != nil {
+		featureName = *entry.featureName
+	}
+
+	kvStores := firewallStore.GetKVStores(
+		entry.ruleName, groupID, featureName,
+	)
+
+	return kvStores.View(ctx, func(ctx context.Context,
+		tx firewalldb.KVStoreTx) error {
+
+		var store firewalldb.KVStore
+
+		switch {
+		case entry.groupAlias == nil && !entry.perm:
+			store = tx.GlobalTemp()
+		case entry.groupAlias == nil && entry.perm:
+			store = tx.Global()
+		case entry.groupAlias != nil && !entry.perm:
+			store = tx.LocalTemp()
+		default:
+			store = tx.Local()
+		}
+
+		value, err := store.Get(ctx, entry.key)
+		if err != nil {
+			return err
+		}
+
+		if !bytes.Equal(value, entry.value) {
+			return fmt.Errorf(
+				"kv entry %s value mismatch", entry.key,
+			)
+		}
+
+		return nil
+	})
 }
 
 // assertMigrationDataViaLitCLI checks migration data using litcli commands.
@@ -1369,10 +1878,11 @@ func assertMacaroonRecipe(t *harnessTest, actual *litrpc.MacaroonRecipe,
 // results.
 func assertMigrationDataSQL(ctx context.Context, t *harnessTest,
 	node *HarnessNode, accountsData accountMigrationData,
-	sessionData sessionMigrationData) {
+	sessionData sessionMigrationData, firewallData firewallMigrationData) {
 
 	assertAccountMigrationDataSQL(ctx, t, node, accountsData)
 	assertSessionMigrationDataSQL(ctx, t, node, sessionData)
+	assertFirewallMigrationDataSQL(ctx, t, node, firewallData)
 }
 
 // assertAccountMigrationDataSQL connects to the SQL DB and queries account
@@ -1494,6 +2004,142 @@ func assertSessionMigrationDataSQL(ctx context.Context, t *harnessTest,
 
 		err = compareSessionExpectation(label, expected, actual)
 		require.NoError(t.t, err)
+	}
+}
+
+// assertFirewallMigrationDataSQL connects to the SQL DB via helpers that
+// query firewall data to assert migration results.
+func assertFirewallMigrationDataSQL(ctx context.Context, t *harnessTest,
+	node *HarnessNode, data firewallMigrationData) {
+
+	assertFirewallKVMigrationDataSQL(ctx, t, node, data)
+}
+
+// assertFirewallKVMigrationDataSQL connects to the SQL DB and queries KV
+// entries to assert migration results.
+func assertFirewallKVMigrationDataSQL(ctx context.Context, t *harnessTest,
+	node *HarnessNode, data firewallMigrationData) {
+
+	dbPath := filepath.Join(
+		node.Cfg.LitDir,
+		node.Cfg.NetParams.Name,
+		"litd.db",
+	)
+
+	sqlStore, err := sqldb.NewSqliteStore(
+		&sqldb.SqliteConfig{
+			SkipMigrations:        true,
+			SkipMigrationDbBackup: true,
+		}, dbPath,
+	)
+	require.NoError(t.t, err)
+	defer sqlStore.BaseDB.Close()
+
+	queries := sqlcmig6.NewForType(
+		sqlStore.BaseDB, sqlStore.BackendType,
+	)
+
+	ruleIDs := make(map[string]int64)
+	featureIDs := make(map[string]int64)
+	groupIDs := make(map[[4]byte]int64)
+
+	getRuleID := func(ruleName string) int64 {
+		id, ok := ruleIDs[ruleName]
+		if ok {
+			return id
+		}
+
+		ruleID, err := queries.GetRuleID(ctx, ruleName)
+		require.NoError(t.t, err)
+		ruleIDs[ruleName] = ruleID
+
+		return ruleID
+	}
+
+	getGroupID := func(alias session.ID) int64 {
+		id, ok := groupIDs[alias]
+		if ok {
+			return id
+		}
+
+		groupID, err := queries.GetSessionIDByAlias(ctx, alias[:])
+		require.NoError(t.t, err)
+		groupIDs[alias] = groupID
+
+		return groupID
+	}
+
+	getFeatureID := func(name string) int64 {
+		id, ok := featureIDs[name]
+		if ok {
+			return id
+		}
+
+		featureID, err := queries.GetFeatureID(ctx, name)
+		require.NoError(t.t, err)
+		featureIDs[name] = featureID
+
+		return featureID
+	}
+
+	for _, entry := range data.entries {
+		ruleID := getRuleID(entry.ruleName)
+
+		switch {
+		case entry.groupAlias == nil:
+			val, err := queries.GetGlobalKVStoreRecord(
+				ctx, sqlcmig6.GetGlobalKVStoreRecordParams{
+					Key:    entry.key,
+					Perm:   entry.perm,
+					RuleID: ruleID,
+				},
+			)
+			require.NoError(t.t, err)
+			require.True(
+				t.t, bytes.Equal(entry.value, val),
+			)
+
+		case entry.featureName == nil:
+			groupID := getGroupID(*entry.groupAlias)
+			val, err := queries.GetGroupKVStoreRecord(
+				ctx, sqlcmig6.GetGroupKVStoreRecordParams{
+					Key:    entry.key,
+					Perm:   entry.perm,
+					RuleID: ruleID,
+					GroupID: sql.NullInt64{
+						Int64: groupID,
+						Valid: true,
+					},
+				},
+			)
+			require.NoError(t.t, err)
+			require.True(
+				t.t, bytes.Equal(entry.value, val),
+			)
+
+		default:
+			groupID := getGroupID(*entry.groupAlias)
+			featureID := getFeatureID(*entry.featureName)
+			val, err := queries.GetFeatureKVStoreRecord(
+				ctx, sqlcmig6.GetFeatureKVStoreRecordParams{
+					Key:    entry.key,
+					Perm:   entry.perm,
+					RuleID: ruleID,
+					GroupID: sql.NullInt64{
+						Int64: groupID,
+						Valid: true,
+					},
+					FeatureID: sql.NullInt64{
+						Int64: featureID,
+						Valid: true,
+					},
+				},
+			)
+			require.NoError(t.t, err)
+			require.True(
+				t.t, bytes.Equal(entry.value, val),
+			)
+		}
 	}
 }
 
