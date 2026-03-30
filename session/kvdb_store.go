@@ -96,6 +96,21 @@ var _ Store = (*BoltStore)(nil)
 func NewDB(dir, fileName string, clock clock.Clock,
 	store accounts.Store) (*BoltStore, error) {
 
+	return newDB(dir, fileName, clock, store, false)
+}
+
+// NewDBForMigration opens the session kvdb store even if it was already marked
+// as deprecated. This is only intended for rerunning the kvdb to SQL migration
+// after the SQL database was removed or downgraded.
+func NewDBForMigration(dir, fileName string, clock clock.Clock,
+	store accounts.Store) (*BoltStore, error) {
+
+	return newDB(dir, fileName, clock, store, true)
+}
+
+func newDB(dir, fileName string, clock clock.Clock, store accounts.Store,
+	allowDeprecated bool) (*BoltStore, error) {
+
 	firstInit := false
 	path := filepath.Join(dir, fileName)
 
@@ -105,6 +120,13 @@ func NewDB(dir, fileName string, clock clock.Clock,
 			return nil, err
 		}
 		firstInit = true
+	}
+
+	if !allowDeprecated {
+		err := CheckKVDBDeprecated(path)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	db, err := initDB(path, firstInit)

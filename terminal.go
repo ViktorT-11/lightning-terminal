@@ -405,6 +405,8 @@ func (g *LightningTerminal) Run(ctx context.Context) error {
 		g.statusMgr.SetErrored(
 			subservers.LIT, "could not start Lit: %v", startErr,
 		)
+
+		return startErr
 	}
 
 	// Now block until we receive an error or the main shutdown

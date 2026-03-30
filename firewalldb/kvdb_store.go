@@ -49,6 +49,26 @@ type BoltDB struct {
 func NewBoltDB(dir, fileName string, sessionIDIndex SessionDB,
 	accountsDB AccountsDB, clock clock.Clock) (*BoltDB, error) {
 
+	return newBoltDB(
+		dir, fileName, sessionIDIndex, accountsDB, clock, false,
+	)
+}
+
+// NewBoltDBForMigration opens the rules kvdb store even if it was already
+// marked as deprecated. This is only intended for rerunning the kvdb to SQL
+// migration after the SQL database was removed or downgraded.
+func NewBoltDBForMigration(dir, fileName string, sessionIDIndex SessionDB,
+	accountsDB AccountsDB, clock clock.Clock) (*BoltDB, error) {
+
+	return newBoltDB(
+		dir, fileName, sessionIDIndex, accountsDB, clock, true,
+	)
+}
+
+func newBoltDB(dir, fileName string, sessionIDIndex SessionDB,
+	accountsDB AccountsDB, clock clock.Clock,
+	allowDeprecated bool) (*BoltDB, error) {
+
 	firstInit := false
 	path := filepath.Join(dir, fileName)
 
@@ -58,6 +78,13 @@ func NewBoltDB(dir, fileName string, sessionIDIndex SessionDB,
 			return nil, err
 		}
 		firstInit = true
+	}
+
+	if !allowDeprecated {
+		err := CheckKVDBDeprecated(path)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	db, err := initDB(path, firstInit)

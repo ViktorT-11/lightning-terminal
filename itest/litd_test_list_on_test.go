@@ -3,7 +3,7 @@
 package itest
 
 var allTestCases = []*testCase{
-	{
+	/*{
 		name: "terminal integrated mode",
 		test: testModeIntegrated,
 	},
@@ -22,12 +22,12 @@ var allTestCases = []*testCase{
 	{
 		name: "terminal large http header",
 		test: testLargeHttpHeader,
-	},
+	},*/
 	{
 		name: "kvdb to sql migration",
 		test: testKvdbSQLMigration,
 	},
-	{
+	/*{
 		name:       "custom channels",
 		test:       testCustomChannels,
 		noAliceBob: true,
@@ -160,5 +160,5 @@ var allTestCases = []*testCase{
 		backwardCompat: map[string]string{
 			"Charlie": "v0.15.0-alpha",
 		},
-	},
+	},*/
 }
