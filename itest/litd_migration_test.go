@@ -208,13 +208,13 @@ func testKvdbSQLMigration(ctx context.Context, net *NetworkHarness,
 	require.NoError(t.t, rawConn.Close())
 	require.NoError(t.t, migNode.Stop())
 
-	downgradeBinary := fmt.Sprintf("%s-%s", net.litdBinary, "v0.15.0-alpha")
+	downgradeBinary := fmt.Sprintf("%s-%s", net.litdBinary, "v0.16.0-alpha")
 	if _, err := os.Stat(downgradeBinary); err == nil {
 		if net.backwardCompat == nil {
 			net.backwardCompat = make(map[string]string)
 		}
 
-		net.backwardCompat[migNode.Name()] = "v0.15.0-alpha"
+		net.backwardCompat[migNode.Name()] = "v0.16.0-alpha"
 		assertNodeStartFails(
 			ctxt, t, net, migNode, nil, "",
 		)
