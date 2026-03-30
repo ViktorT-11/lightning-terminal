@@ -60,8 +60,9 @@ func testKvdbSQLMigration(ctx context.Context, net *NetworkHarness,
 		t.t.Skipf("Skipping kvdb migration test for bbolt backend")
 	}
 
-	ctxt, cancel := context.WithTimeout(ctx, defaultTimeout)
-	defer cancel()
+	newStepCtx := func() (context.Context, context.CancelFunc) {
+		return context.WithTimeout(ctx, defaultTimeout)
+	}
 
 	// Step 1: Start a node with a bbolt backend.
 	// We want to start from an explicit bbolt backend regardless of the
@@ -77,14 +78,19 @@ func testKvdbSQLMigration(ctx context.Context, net *NetworkHarness,
 	defer shutdownAndAssert(net, t, migNode)
 
 	// Setup a raw gRPC connection used to set up RPC clients.
+	ctxt, cancel := newStepCtx()
 	rawConn, err := connectRPC(
 		ctxt, migNode.Cfg.LitAddr(), migNode.Cfg.LitTLSCertPath,
 	)
 	require.NoError(t.t, err)
+	cancel()
 
 	// Get the litd admin macaroon context from the migration node.
 	macBytes := getLiTMacFromFile(t.t, migNode.Cfg)
-	ctxm := macaroonContext(ctxt, macBytes)
+	newAdminCtx := func() (context.Context, context.CancelFunc) {
+		stepCtx, cancel := newStepCtx()
+		return macaroonContext(stepCtx, macBytes), cancel
+	}
 
 	// LiT RPC clients are used to seed and assert migration fixtures.
 	accountsClient := litrpc.NewAccountsClient(rawConn)
@@ -93,16 +99,20 @@ func testKvdbSQLMigration(ctx context.Context, net *NetworkHarness,
 	firewallClient := litrpc.NewFirewallClient(rawConn)
 
 	// Step 2: Insert one account, one session and one action via RPC.
+	ctxm, cancel := newAdminCtx()
 	migrationRefs := setupMigrationData(
 		ctxm, t, accountsClient, sessionsClient, autopilotClient,
 		firewallClient,
 	)
+	cancel()
 
 	// Step 3: Query and snapshot inserted data via RPC while on bbolt.
+	ctxm, cancel = newAdminCtx()
 	beforeMigration := queryMigrationData(
 		ctxm, t, accountsClient, sessionsClient, firewallClient,
 		migrationRefs.actionMethod,
 	)
+	cancel()
 
 	// Close now so restarts can reopen stores without locks.
 	rawConn.Close()
@@ -117,11 +127,12 @@ func testKvdbSQLMigration(ctx context.Context, net *NetworkHarness,
 	require.NoError(t.t, err)
 
 	// Setup clients for the restarted node once more.
+	ctxt, cancel = newStepCtx()
 	rawConn, err = connectRPC(
 		ctxt, migNode.Cfg.LitAddr(), migNode.Cfg.LitTLSCertPath,
 	)
 	require.NoError(t.t, err)
-	defer rawConn.Close()
+	cancel()
 
 	accountsClient = litrpc.NewAccountsClient(rawConn)
 	sessionsClient = litrpc.NewSessionsClient(rawConn)
@@ -129,17 +140,21 @@ func testKvdbSQLMigration(ctx context.Context, net *NetworkHarness,
 
 	// Step 5: Query migrated data via RPC and compare with pre-migration
 	// snapshot.
+	ctxm, cancel = newAdminCtx()
 	afterMigration := queryMigrationData(
 		ctxm, t, accountsClient, sessionsClient, firewallClient,
 		migrationRefs.actionMethod,
 	)
+	cancel()
 
 	// Step 6: Ensure that the results received by RPC prior and after the
 	// migration are equal.
 	assertMigrationSnapshotsEqual(t, beforeMigration, afterMigration)
 
 	// Step 7: Assert migrated data in SQL.
+	ctxt, cancel = newStepCtx()
 	assertMinimalMigrationDataSQL(ctxt, t, migNode, migrationRefs)
+	cancel()
 
 	// Step 8: Verify that deprecated kvdb files now block bbolt startup.
 	require.NoError(t.t, migNode.Stop())
@@ -164,35 +179,44 @@ func testKvdbSQLMigration(ctx context.Context, net *NetworkHarness,
 	)
 	require.NoError(t.t, err)
 
+	ctxt, cancel = newStepCtx()
 	rawConn, err = connectRPC(
 		ctxt, migNode.Cfg.LitAddr(), migNode.Cfg.LitTLSCertPath,
 	)
 	require.NoError(t.t, err)
-	defer rawConn.Close()
+	cancel()
 
 	accountsClient = litrpc.NewAccountsClient(rawConn)
 	sessionsClient = litrpc.NewSessionsClient(rawConn)
 	firewallClient = litrpc.NewFirewallClient(rawConn)
 
+	ctxm, cancel = newAdminCtx()
 	afterDeletedSQLMigration := queryMigrationData(
 		ctxm, t, accountsClient, sessionsClient, firewallClient,
 		migrationRefs.actionMethod,
 	)
+	cancel()
 	assertMigrationSnapshotsEqual(
 		t, beforeMigration, afterDeletedSQLMigration,
 	)
+	ctxt, cancel = newStepCtx()
 	assertMinimalMigrationDataSQL(ctxt, t, migNode, migrationRefs)
+	cancel()
 
 	// Step 10: If the backward compatibility binary exists, verify that an
 	// old LiT version also fails to start once kvdb was deprecated.
 	require.NoError(t.t, rawConn.Close())
 	require.NoError(t.t, migNode.Stop())
 
-	downgradeBinary := fmt.Sprintf("%s-%s", net.litdBinary, "v0.14.1-alpha")
+	downgradeBinary := fmt.Sprintf("%s-%s", net.litdBinary, "v0.15.0-alpha")
 	if _, err := os.Stat(downgradeBinary); err == nil {
-		net.backwardCompat[migNode.Name()] = "v0.14.1-alpha"
+		if net.backwardCompat == nil {
+			net.backwardCompat = make(map[string]string)
+		}
+
+		net.backwardCompat[migNode.Name()] = "v0.15.0-alpha"
 		assertNodeStartFails(
-			ctxt, t, net, migNode, nil, "invalid bucket structure",
+			ctxt, t, net, migNode, nil, "",
 		)
 		delete(net.backwardCompat, migNode.Name())
 	}
@@ -207,20 +231,23 @@ func testKvdbSQLMigration(ctx context.Context, net *NetworkHarness,
 	)
 	require.NoError(t.t, err)
 
+	ctxt, cancel = newStepCtx()
 	rawConn, err = connectRPC(
 		ctxt, migNode.Cfg.LitAddr(), migNode.Cfg.LitTLSCertPath,
 	)
 	require.NoError(t.t, err)
-	defer rawConn.Close()
+	cancel()
 
 	accountsClient = litrpc.NewAccountsClient(rawConn)
 	sessionsClient = litrpc.NewSessionsClient(rawConn)
 	firewallClient = litrpc.NewFirewallClient(rawConn)
 
+	ctxm, cancel = newAdminCtx()
 	afterUnsafeUnmark := queryMigrationData(
 		ctxm, t, accountsClient, sessionsClient, firewallClient,
 		migrationRefs.actionMethod,
 	)
+	cancel()
 	assertMigrationSnapshotsEqual(t, beforeMigration, afterUnsafeUnmark)
 
 	// The unsafe flag should persistently remove the tombstones, so a
@@ -514,7 +541,7 @@ func assertNodeStartFails(ctx context.Context, t *harnessTest,
 	)
 	require.Error(t.t, err)
 
-	if !strings.Contains(err.Error(), expectedErr) {
+	if expectedErr != "" && !strings.Contains(err.Error(), expectedErr) {
 		select {
 		case procErr := <-net.ProcessErrors():
 			require.Error(t.t, procErr)

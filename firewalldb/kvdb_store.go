@@ -3,6 +3,7 @@ package firewalldb
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -71,6 +72,7 @@ func newBoltDB(dir, fileName string, sessionIDIndex SessionDB,
 
 	firstInit := false
 	path := filepath.Join(dir, fileName)
+	deprecated := false
 
 	// If the database file does not exist yet, create its directory.
 	if !fileExists(path) {
@@ -80,11 +82,15 @@ func newBoltDB(dir, fileName string, sessionIDIndex SessionDB,
 		firstInit = true
 	}
 
-	if !allowDeprecated {
-		err := CheckKVDBDeprecated(path)
-		if err != nil {
-			return nil, err
-		}
+	err := CheckKVDBDeprecated(path)
+	switch {
+	case err == nil:
+
+	case errors.Is(err, ErrKVDBDeprecated) && allowDeprecated:
+		deprecated = true
+
+	default:
+		return nil, err
 	}
 
 	db, err := initDB(path, firstInit)
@@ -94,8 +100,10 @@ func newBoltDB(dir, fileName string, sessionIDIndex SessionDB,
 
 	// Attempt to sync the database's current version with the latest known
 	// version available.
-	if err := syncVersions(db); err != nil {
-		return nil, err
+	if !deprecated {
+		if err := syncVersions(db); err != nil {
+			return nil, err
+		}
 	}
 
 	return &BoltDB{
