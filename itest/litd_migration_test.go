@@ -18,6 +18,7 @@ import (
 	"github.com/lightninglabs/lightning-terminal/db/sqlcmig6"
 	"github.com/lightninglabs/lightning-terminal/firewalldb"
 	"github.com/lightninglabs/lightning-terminal/litrpc"
+	"github.com/lightninglabs/lightning-terminal/subservers"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/sqldb/v2"
 	"github.com/stretchr/testify/require"
@@ -160,7 +161,7 @@ func testKvdbSQLMigration(ctx context.Context, net *NetworkHarness,
 	require.NoError(t.t, migNode.Stop())
 
 	assertNodeStartFails(
-		ctxt, t, net, migNode,
+		t, net, migNode,
 		[]LitArgOption{
 			WithLitArg("databasebackend", terminal.DatabaseBackendBbolt),
 			WithLitArg("firewall.request-logger.level", "all"),
@@ -208,15 +209,15 @@ func testKvdbSQLMigration(ctx context.Context, net *NetworkHarness,
 	require.NoError(t.t, rawConn.Close())
 	require.NoError(t.t, migNode.Stop())
 
-	downgradeBinary := fmt.Sprintf("%s-%s", net.litdBinary, "v0.16.0-alpha")
+	downgradeBinary := fmt.Sprintf("%s-%s", net.litdBinary, "v0.15.0-alpha")
 	if _, err := os.Stat(downgradeBinary); err == nil {
 		if net.backwardCompat == nil {
 			net.backwardCompat = make(map[string]string)
 		}
 
-		net.backwardCompat[migNode.Name()] = "v0.16.0-alpha"
+		net.backwardCompat[migNode.Name()] = "v0.15.0-alpha"
 		assertNodeStartFails(
-			ctxt, t, net, migNode, nil, "",
+			t, net, migNode, nil, "",
 		)
 		delete(net.backwardCompat, migNode.Name())
 	}
@@ -529,11 +530,28 @@ func openMigrationSQLStore(t *harnessTest,
 
 // assertNodeStartFails waits for the node startup path to complete and asserts
 // that startup fails with an error containing the expected text.
-func assertNodeStartFails(ctx context.Context, t *harnessTest,
-	net *NetworkHarness, node *HarnessNode, litArgOpts []LitArgOption,
-	expectedErr string) {
+func assertNodeStartFails(t *harnessTest, net *NetworkHarness,
+	node *HarnessNode, litArgOpts []LitArgOption, expectedErr string) {
 
 	t.t.Helper()
+
+	if expectedErr != "" {
+		err := node.Start(
+			net.litdBinary, net.backwardCompat, net.lndErrorChan, false,
+			litArgOpts...,
+		)
+		require.NoError(t.t, err)
+
+		assertLitStatusError(t, node, expectedErr)
+
+		if node.cmd != nil && node.cmd.Process != nil {
+			_ = node.cmd.Process.Kill()
+		}
+
+		waitForNodeExit(t, node)
+
+		return
+	}
 
 	err := node.Start(
 		net.litdBinary, net.backwardCompat, net.lndErrorChan, true,
@@ -541,19 +559,69 @@ func assertNodeStartFails(ctx context.Context, t *harnessTest,
 	)
 	require.Error(t.t, err)
 
-	if expectedErr != "" && !strings.Contains(err.Error(), expectedErr) {
-		select {
-		case procErr := <-net.ProcessErrors():
-			require.Error(t.t, procErr)
-			require.Contains(t.t, procErr.Error(), expectedErr)
+	waitForNodeExit(t, node)
+}
 
-		case <-time.After(defaultTimeout):
-			t.t.Fatalf(
-				"expected %s startup failure containing %q",
-				node.Name(), expectedErr,
-			)
+// assertLitStatusError waits for the public LiT status endpoint to report the
+// expected error string for the LiT sub-server.
+func assertLitStatusError(t *harnessTest, node *HarnessNode,
+	expectedErr string) {
+
+	t.t.Helper()
+
+	deadline := time.Now().Add(defaultTimeout)
+	var lastErr error
+
+	for time.Now().Before(deadline) {
+		ctxt, cancel := context.WithTimeout(
+			context.Background(), 2*time.Second,
+		)
+		rawConn, err := connectLitRPC(
+			ctxt, node.Cfg.LitAddr(), node.Cfg.LitTLSCertPath, "",
+		)
+		cancel()
+		if err != nil {
+			lastErr = err
+			time.Sleep(200 * time.Millisecond)
+			continue
 		}
+
+		statusClient := litrpc.NewStatusClient(rawConn)
+		ctxt, cancel = context.WithTimeout(
+			context.Background(), 2*time.Second,
+		)
+		resp, err := statusClient.SubServerStatus(
+			ctxt, &litrpc.SubServerStatusReq{},
+		)
+		cancel()
+		_ = rawConn.Close()
+		if err != nil {
+			lastErr = err
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+
+		litStatus, ok := resp.SubServers[subservers.LIT]
+		if ok && strings.Contains(litStatus.GetError(), expectedErr) {
+			return
+		}
+
+		lastErr = fmt.Errorf(
+			"lit status error %q did not contain %q",
+			litStatus.GetError(), expectedErr,
+		)
+		time.Sleep(200 * time.Millisecond)
 	}
+
+	require.FailNowf(
+		t.t, "expected %s status failure", "%v", lastErr,
+	)
+}
+
+// waitForNodeExit waits for the node process to exit and force kills it if the
+// failed-start path leaves the process around.
+func waitForNodeExit(t *harnessTest, node *HarnessNode) {
+	t.t.Helper()
 
 	select {
 	case <-node.processExit:
@@ -564,7 +632,7 @@ func assertNodeStartFails(ctx context.Context, t *harnessTest,
 
 		select {
 		case <-node.processExit:
-		case <-ctx.Done():
+		case <-time.After(10 * time.Second):
 			t.t.Fatalf("timed out waiting for %s process exit",
 				node.Name())
 		}
