@@ -3,6 +3,7 @@ package firewalldb
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -49,8 +50,29 @@ type BoltDB struct {
 func NewBoltDB(dir, fileName string, sessionIDIndex SessionDB,
 	accountsDB AccountsDB, clock clock.Clock) (*BoltDB, error) {
 
+	return newBoltDB(
+		dir, fileName, sessionIDIndex, accountsDB, clock, false,
+	)
+}
+
+// NewBoltDBForMigration opens the rules kvdb store even if it was already
+// marked as deprecated. This is only intended for rerunning the kvdb to SQL
+// migration after the SQL database was removed or downgraded.
+func NewBoltDBForMigration(dir, fileName string, sessionIDIndex SessionDB,
+	accountsDB AccountsDB, clock clock.Clock) (*BoltDB, error) {
+
+	return newBoltDB(
+		dir, fileName, sessionIDIndex, accountsDB, clock, true,
+	)
+}
+
+func newBoltDB(dir, fileName string, sessionIDIndex SessionDB,
+	accountsDB AccountsDB, clock clock.Clock,
+	allowDeprecated bool) (*BoltDB, error) {
+
 	firstInit := false
 	path := filepath.Join(dir, fileName)
+	deprecated := false
 
 	// If the database file does not exist yet, create its directory.
 	if !fileExists(path) {
@@ -60,6 +82,17 @@ func NewBoltDB(dir, fileName string, sessionIDIndex SessionDB,
 		firstInit = true
 	}
 
+	err := CheckKVDBDeprecated(path)
+	switch {
+	case err == nil:
+
+	case errors.Is(err, ErrKVDBDeprecated) && allowDeprecated:
+		deprecated = true
+
+	default:
+		return nil, err
+	}
+
 	db, err := initDB(path, firstInit)
 	if err != nil {
 		return nil, err
@@ -67,8 +100,10 @@ func NewBoltDB(dir, fileName string, sessionIDIndex SessionDB,
 
 	// Attempt to sync the database's current version with the latest known
 	// version available.
-	if err := syncVersions(db); err != nil {
-		return nil, err
+	if !deprecated {
+		if err := syncVersions(db); err != nil {
+			return nil, err
+		}
 	}
 
 	return &BoltDB{
