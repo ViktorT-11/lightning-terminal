@@ -1,0 +1,5 @@
+-- Comment to ensure the file created and picked up in the migration stream.
+-- NOTE: This version used to be the migration file for dev kvdb to SQL
+-- migration, but as that migration has now been moved to production, it's been
+-- removed from dev. The file is still kept though, to ensure the latest dev
+-- migration version remains the same after the removal.

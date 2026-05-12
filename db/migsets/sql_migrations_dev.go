@@ -13,12 +13,6 @@ import (
 	"github.com/lightningnetwork/lnd/sqldb/v2"
 )
 
-const (
-	// DevKVDBtoSQLMigVersion is the dev version of the migration that
-	// migrates the kvdb to the sql database.
-	DevKVDBtoSQLMigVersion = 1
-)
-
 // MakeMigrationSets creates the migration sets for the dev environments.
 func MakeMigrationSets(ctx context.Context,
 	basicClient lnrpc.LightningClient, macPath string,
@@ -69,22 +63,10 @@ func MakeMigrationSets(ctx context.Context,
 		// NOTE: This MUST be updated when a new dev migration is added.
 		LatestMigrationVersion: db.LatestDevMigrationVersion,
 
-		MakeProgrammaticMigrations: func(baseDB *sqldb.BaseDB) (
+		MakeProgrammaticMigrations: func(_ *sqldb.BaseDB) (
 			map[uint]migrate.ProgrammaticMigrEntry, error) {
 
-			// Any programmatic migrations added to this map will be
-			// executed when the dev migration number for the uint
-			// key ia applied. If no entry exists for a
-			// given uint, then no programmatic migration will be
-			// executed for that migration number.
-			res := make(map[uint]migrate.ProgrammaticMigrEntry)
-
-			res[DevKVDBtoSQLMigVersion] = Mig6ProgrammaticMigration(
-				ctx, basicClient, baseDB, macPath, clock,
-				DevKVDBtoSQLMigVersion,
-			)
-
-			return res, nil
+			return make(map[uint]migrate.ProgrammaticMigrEntry), nil
 		},
 	}
 
